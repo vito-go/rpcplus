@@ -1,24 +1,22 @@
 ## [English](README.md) | [中文版](README-zh-hans.md)
 
 # gorpc
+gorpc 是对标准 Go RPC 库的强健增强版, 进行了多项改进。
 
-gorpc is a robust enhancement of the standard Go RPC library.
+## 主要特点
+- 直接注册函数，甚至是匿名函数
+- 注册包含接收者的所有**适用**方法（通常是结构体）
+  - 适用的定义请查阅[函数注册](#函数注册)
+- 支持包含多个参数的函数
+- 为注册的函数加入 `context.Context` 支持，用于更复杂的上下文管理, 例如`context.WithTimeout`
+ 
+以上关键特性使得 gorpc 成为一个功能全面而强大的 RPC 框架。
+## 函数注册
+- 要求函数满足以下条件：
+  - 一个参数或多个参数，首个为 context.Context 类型
+  - 返回类型：单个 error 或两个值，第二个为 error 类型。
 
-## Key Features
-
-- Direct registration of functions, including anonymous ones
-- Ability to register all suitable methods associated with a receiver, typically a struct
-  - For `suitable` definitions, please refer to  [Register Function](#Function)
-- Support for functions with multiple input parameters
-- Integrating `context.Context` within registered functions for advanced context management, e.g `context.WithTimeout`
-  
-These key enhancements contribute to a versatile and powerful RPC implementation.
-
-## Function
-RegisterFunc that satisfy the following conditions:
- - Have one or more arguments, with the first argument being of type context.Context
- - Return types: a single error or a pair with the second element an error
-### Example
+### 示例
 ```go
   func Add(ctx context.Context, x int,y int) (int, error)
 
@@ -36,9 +34,9 @@ RegisterFunc that satisfy the following conditions:
 
 ```
 
-## Usage
 
-- ### Server
+## 使用
+- ### 服务端
     ```go
         package  main
         import (
@@ -73,7 +71,7 @@ RegisterFunc that satisfy the following conditions:
             s.Serve(lis)
         }
     ```
-- ### Client
+- ### 客户端
     ```go
         package main
         import (
