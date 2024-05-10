@@ -170,19 +170,25 @@ func (server *Server) registerRecvWithName(recvName string, receiver any) error 
 	return nil
 }
 
-func (m *methodType) call(ctx context.Context, args ...reflect.Value) (result any, err error) {
-	if len(m.argTypes) != len(args)+1 {
+func (mtype *methodType) call(ctx context.Context, args ...reflect.Value) (result any, err error) {
+	if len(mtype.argTypes) != len(args)+1 {
 		return nil, errors.New("gorpc: invalid number of arguments")
 	}
-	f := m.function
-	argValues := make([]reflect.Value, 0, len(m.argTypes))
-	argValues = append(argValues, reflect.ValueOf(ctx))
-	for _, arg := range args {
-		argValues = append(argValues, arg.Elem())
+	f := mtype.function
+	callArgs := make([]reflect.Value, 0, len(mtype.argTypes))
+	callArgs = append(callArgs, reflect.ValueOf(ctx))
+
+	for i := 0; i < len(args); i++ {
+		if mtype.argTypes[i+1].Kind() == reflect.Pointer {
+			callArgs = append(callArgs, args[i])
+		} else {
+			callArgs = append(callArgs, args[i].Elem())
+		}
 	}
-	values := f.Call(argValues)
+
+	values := f.Call(callArgs)
 	if len(values) != 2 {
-		return nil, fmt.Errorf("gorpc: invalid return number. method %s length error: %v", m.name, len(values))
+		return nil, fmt.Errorf("gorpc: invalid return number. method %s length error: %v", mtype.name, len(values))
 	}
 	result = values[0].Interface()
 	vErr := values[1].Interface()
@@ -198,19 +204,23 @@ func (m *methodType) call(ctx context.Context, args ...reflect.Value) (result an
 	return result, err
 }
 
-func (m *methodType) callVoid(ctx context.Context, args ...reflect.Value) (err error) {
-	if len(m.argTypes) != len(args)+1 {
+func (mtype *methodType) callVoid(ctx context.Context, args ...reflect.Value) (err error) {
+	if len(mtype.argTypes) != len(args)+1 {
 		return errors.New("gorpc: invalid number of arguments")
 	}
-	f := m.function
-	argValues := make([]reflect.Value, 0, len(args))
-	argValues = append(argValues, reflect.ValueOf(ctx))
-	for _, arg := range args {
-		argValues = append(argValues, arg.Elem())
+	f := mtype.function
+	callArgs := make([]reflect.Value, 0, len(args))
+	callArgs = append(callArgs, reflect.ValueOf(ctx))
+	for i := 0; i < len(args); i++ {
+		if mtype.argTypes[i+1].Kind() == reflect.Pointer {
+			callArgs = append(callArgs, args[i])
+		} else {
+			callArgs = append(callArgs, args[i].Elem())
+		}
 	}
-	values := f.Call(argValues)
+	values := f.Call(callArgs)
 	if len(values) != 1 {
-		return fmt.Errorf("gorpc: invalid return number. method %s length error: %v", m.name, len(values))
+		return fmt.Errorf("gorpc: invalid return number. method %s length error: %v", mtype.name, len(values))
 	}
 	vErr := values[0].Interface()
 	if vErr == nil {

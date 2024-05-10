@@ -31,7 +31,10 @@ func (s *Stu) GetUserInfoByUserId(ctx context.Context, userId int) (*UserInfo, e
 func (s *Stu) GetAgeByName(ctx context.Context, name string) (int, error) {
 	return 31, nil
 }
-
+func (s *Stu) UpdateUserInfo(ctx context.Context, u *UserInfo) (int64, error) {
+	log.Println("do some thing here")
+	return 100, nil
+}
 func (s *Stu) Post(ctx context.Context, id int) error {
 	log.Println("do some thing here")
 	return nil
@@ -104,4 +107,16 @@ func exampleClient() {
 	}
 	// OutPut Add Result: 5696
 	log.Println(fmt.Sprintf("Anonymous Result: %+v", addResult))
+	var userId int
+	err = cli.Call(ctx, "Stu.UpdateUserInfo", &userId, &UserInfo{
+		Name:    "Jack",
+		Age:     35,
+		ClassId: 1,
+	})
+	if err != nil {
+		panic(err)
+	}
+	// OutPut Add Result: 5696
+	log.Println(fmt.Sprintf("Stu.UpdateUserInfo Result: %+v", userId))
+
 }
