@@ -18,19 +18,21 @@ gorpc 是对标准 Go RPC 库的强健增强版, 进行了多项改进。
 
 ### 示例
 ```go
-  func Add(ctx context.Context, x int,y int) (int, error)
-
-  func getAgeByName(ctx context.Context, name string) (int, error)
-
-  func getAgeByClassIdAndName(ctx context.Context,classId int,name string) (int, error)
-
+  func add(ctx context.Context, x int,y int) (int, error)
+  
+  func GetAgeByName(ctx context.Context, name string) (int, error)
+  
+  func GetAgeByClassIdAndName(ctx context.Context,classId int,name string) (int, error)
+  
   type UserInfo struct{
       Name string
       Age int
       ClassId int
   }
-	  
-  func getUserInfoByUserId(ctx context.Context,userId int) (*UserInfo, error)
+  
+  func GetUserInfoByUserId(ctx context.Context,userId int) (*UserInfo, error)
+  
+  func UpdateUserInfo(ctx context.Context, u *UserInfo) (int64, error)
 
 ```
 
