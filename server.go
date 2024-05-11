@@ -76,6 +76,7 @@ import (
 
 const (
 	// Defaults used by HandleHTTP
+
 	DefaultRPCPath   = "/_goRPCPlus_"
 	DefaultDebugPath = "/debug/rpcplus"
 )
@@ -144,18 +145,17 @@ type contextKey struct {
 	name string
 }
 
-func (k *contextKey) String() string { return "net/http context value " + k.name }
+func (k *contextKey) String() string { return "rpcplus context value " + k.name }
 
 var (
-	// ServerContextKey is a context key. It can be used in HTTP
-	// handlers with Context.Value to access the server that
+	// ServerContextKey is a context key. It can be used when using Accept to start a server  in RPC function
+	// with Context.Value to access the server that
 	// started the handler. The associated value will be of
 	// type *Server.
 	ServerContextKey = &contextKey{"rpcplus-server"}
 
-	// LocalAddrContextKey is a context key. It can be used in
-	// HTTP handlers with Context.Value to access the local
-	// address the connection arrived at.
+	// LocalAddrContextKey is a context key. It can be used when using Accept to start a server in RPC function
+	// with Context.Value to access the local address the connection arrived at.
 	// The associated value will be of type net.Addr.
 	LocalAddrContextKey = &contextKey{"local-addr"}
 )

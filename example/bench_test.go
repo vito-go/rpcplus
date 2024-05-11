@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 )
+
 //go:generate  go test -bench=.
 
 func BenchmarkRPCPlus(b *testing.B) {
@@ -86,7 +87,7 @@ func startRPCServer() {
 	if err != nil {
 		panic(err)
 	}
-	log.Println("rpc: Starting server on " + lis.Addr().String())
+	log.Println("rpcplus: Starting server on " + lis.Addr().String())
 	go s.Accept(lis)
 	rpcServerAddr.Store(lis.Addr().String())
 }

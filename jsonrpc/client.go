@@ -3,7 +3,7 @@
 // license that can be found in the LICENSE file.
 
 // Package jsonrpc implements a JSON-RPC 1.0 ClientCodec and ServerCodec
-// for the rpc package.
+// for the rpcplus package.
 // For JSON-RPC 2.0 support, see https://godoc.org/?q=json-rpc+2.0
 package jsonrpc
 
@@ -26,9 +26,9 @@ type clientCodec struct {
 	resp clientResponse
 
 	// JSON-RPC responses include the request id but not the request method.
-	// Package rpc expects both.
+	// Package rpcplus expects both.
 	// We save the request method in pending when sending a request
-	// and then look it up by request ID when filling out the rpc Response.
+	// and then look it up by request ID when filling out the rpcplus Response.
 	mutex   sync.Mutex        // protects pending
 	pending map[uint64]string // map request id to method name
 }

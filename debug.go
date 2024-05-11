@@ -5,7 +5,7 @@
 package rpcplus
 
 /*
-	Some HTML presented at http://machine:port/debug/rpc
+	Some HTML presented at http://machine:port/debug/rpcplus
 	Lists services, their methods, and some statistics, still rudimentary.
 */
 
@@ -52,7 +52,7 @@ type debugHTTP struct {
 	*Server
 }
 
-// Runs at /debug/rpc
+// Runs at /debug/rpcplus
 func (server debugHTTP) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// Build a sorted version of the data.
 	var services serviceArray

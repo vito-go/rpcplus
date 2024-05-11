@@ -23,10 +23,10 @@ type serverCodec struct {
 	req serverRequest
 
 	// JSON-RPC clients can use arbitrary json values as request IDs.
-	// Package rpc expects uint64 request IDs.
+	// Package rpcplus expects uint64 request IDs.
 	// We assign uint64 sequence numbers to incoming requests
 	// but save the original request ID in the pending map.
-	// When rpc responds, we use the sequence number in
+	// When rpcplus responds, we use the sequence number in
 	// the response to find the original request ID.
 	mutex   sync.Mutex // protects seq, pending
 	seq     uint64
