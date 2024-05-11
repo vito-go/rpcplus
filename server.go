@@ -19,6 +19,9 @@ func NewServer() *Server {
 	return &Server{serviceMap: sync.Map{}}
 }
 
+func (server *Server) Accept(listener net.Listener) {
+	server.Serve(listener)
+}
 func (server *Server) Serve(listener net.Listener) {
 	var wg sync.WaitGroup
 	for {
@@ -137,17 +140,17 @@ func (server *Server) RegisterRecvWithName(recvName string, receiver any) error 
 }
 func (server *Server) RegisterRecv(receiver any) error {
 	v := reflect.TypeOf(receiver)
-	if v.Kind() != reflect.Ptr {
-		return errors.New("receiver must be ptr")
+	var recvName string
+	switch v.Kind() {
+	case reflect.Ptr:
+		recvName = v.Elem().Name()
+	default:
+		recvName = v.Name()
 	}
-	recvName := v.Elem().Name()
 	return server.registerRecvWithName(recvName, receiver)
 }
 func (server *Server) registerRecvWithName(recvName string, receiver any) error {
 	t := reflect.TypeOf(receiver)
-	if t.Kind() != reflect.Ptr {
-		return errors.New("receiver must be ptr")
-	}
 	if t.NumMethod() == 0 {
 		return errors.New("receiver must have at least one method")
 	}
@@ -267,7 +270,7 @@ func (server *Server) serveConn(codec CodecServer) {
 		if !ok {
 			_ = codec.ReadRequestBody(make([]any, request.ArgsNum)...)
 			// todo arg>0
-			err = server.writeResponse(codec, mux, &Response{Code: 404, Seq: request.Seq, Message: "service not found: " + request.ServiceMethod}, invalidRequest)
+			err = server.writeResponse(codec, mux, &Response{Code: 404, Seq: request.Seq, Message: "rpcplus: can't find method: " + request.ServiceMethod}, invalidRequest)
 			if err != nil {
 				return
 			}
