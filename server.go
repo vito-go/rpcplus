@@ -116,7 +116,49 @@ type Server struct {
 	freeReq    *Request
 	respLock   sync.Mutex // protects freeResp
 	freeResp   *Response
+
+	// BaseContext optionally specifies a function that returns
+	// the base context for incoming requests on this server.
+	// The provided Listener is the specific Listener that's
+	// about to start accepting requests.
+	// If BaseContext is nil, the default is context.Background().
+	// If non-nil, it must return a non-nil context.
+	BaseContext func(net.Listener) context.Context
+
+	// ConnContext optionally specifies a function that modifies
+	// the context used for a new connection c. The provided ctx
+	// is derived from the base context and has a ServerContextKey
+	// value.
+	ConnContext func(ctx context.Context, c net.Conn) context.Context
+
+	// ConnContext optionally specifies a function that modifies
+	// the context used for a new connection c. The provided ctx
+	// is derived from the base context and has a ServerContextKey
+	// value.
+	RequestContext func(ctx context.Context) context.Context
 }
+
+// contextKey is a value for use with context.WithValue. It's used as
+// a pointer, so it fits in an interface{} without allocation.
+type contextKey struct {
+	name string
+}
+
+func (k *contextKey) String() string { return "net/http context value " + k.name }
+
+var (
+	// ServerContextKey is a context key. It can be used in HTTP
+	// handlers with Context.Value to access the server that
+	// started the handler. The associated value will be of
+	// type *Server.
+	ServerContextKey = &contextKey{"rpcplus-server"}
+
+	// LocalAddrContextKey is a context key. It can be used in
+	// HTTP handlers with Context.Value to access the local
+	// address the connection arrived at.
+	// The associated value will be of type net.Addr.
+	LocalAddrContextKey = &contextKey{"local-addr"}
+)
 
 // NewServer returns a new [Server].
 func NewServer() *Server {
@@ -411,7 +453,7 @@ func (c *gobServerCodec) Close() error {
 // ServeConn uses the gob wire format (see package gob) on the
 // connection. To use an alternate codec, use [ServeCodec].
 // See [NewClient]'s comment for information about concurrent access.
-func (server *Server) ServeConn(conn io.ReadWriteCloser) {
+func (server *Server) ServeConn(ctx context.Context, conn io.ReadWriteCloser) {
 	buf := bufio.NewWriter(conn)
 	srv := &gobServerCodec{
 		rwc:    conn,
@@ -419,16 +461,19 @@ func (server *Server) ServeConn(conn io.ReadWriteCloser) {
 		enc:    gob.NewEncoder(buf),
 		encBuf: buf,
 	}
-	server.ServeCodec(srv)
+	server.ServeCodec(ctx, srv)
 }
 
 // ServeCodec is like [ServeConn] but uses the specified codec to
 // decode requests and encode responses.
-func (server *Server) ServeCodec(codec ServerCodec) {
+func (server *Server) ServeCodec(ctx context.Context, codec ServerCodec) {
 	sending := new(sync.Mutex)
 	wg := new(sync.WaitGroup)
 	for {
-		ctx := context.Background()
+		reqCtx := ctx
+		if server.RequestContext != nil {
+			reqCtx = server.RequestContext(ctx)
+		}
 		mtype, req, argv, keepReading, err := server.readRequest(codec)
 		if err != nil {
 			if debugLog && err != io.EOF {
@@ -445,7 +490,7 @@ func (server *Server) ServeCodec(codec ServerCodec) {
 			continue
 		}
 		wg.Add(1)
-		go mtype.call(ctx, server, sending, wg, req, codec, argv...)
+		go mtype.call(reqCtx, server, sending, wg, req, codec, argv...)
 	}
 	// We've seen that there are no more requests.
 	// Wait for responses to be sent before closing codec.
@@ -594,13 +639,29 @@ func (server *Server) readRequestHeader(codec ServerCodec) (mtype *methodType, r
 // returns a non-nil error. The caller typically invokes Accept in a
 // go statement.
 func (server *Server) Accept(lis net.Listener) {
+	baseCtx := context.Background()
+	if server.BaseContext != nil {
+		baseCtx = server.BaseContext(lis)
+		if baseCtx == nil {
+			panic("BaseContext returned a nil context")
+		}
+	}
+	ctx := context.WithValue(baseCtx, ServerContextKey, server)
 	for {
 		conn, err := lis.Accept()
 		if err != nil {
+			// TODO here should continue or return ?
 			log.Print("rpcplus.Serve: accept:", err.Error())
 			return
 		}
-		go server.ServeConn(conn)
+		connCtx := context.WithValue(ctx, LocalAddrContextKey, conn.LocalAddr())
+		if cc := server.ConnContext; cc != nil {
+			connCtx = cc(connCtx, conn)
+			if connCtx == nil {
+				panic("ConnContext returned nil")
+			}
+		}
+		go server.ServeConn(connCtx, conn)
 	}
 }
 
@@ -641,13 +702,13 @@ type ServerCodec interface {
 // connection. To use an alternate codec, use [ServeCodec].
 // See [NewClient]'s comment for information about concurrent access.
 func ServeConn(conn io.ReadWriteCloser) {
-	DefaultServer.ServeConn(conn)
+	DefaultServer.ServeConn(context.Background(), conn)
 }
 
 // ServeCodec is like [ServeConn] but uses the specified codec to
 // decode requests and encode responses.
 func ServeCodec(codec ServerCodec) {
-	DefaultServer.ServeCodec(codec)
+	DefaultServer.ServeCodec(context.Background(), codec)
 }
 
 // ServeRequest is like [ServeCodec] but synchronously serves a single request.
@@ -678,7 +739,7 @@ func (server *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	io.WriteString(conn, "HTTP/1.0 "+connected+"\n\n")
-	server.ServeConn(conn)
+	server.ServeConn(req.Context(), conn)
 }
 
 // HandleHTTP registers an HTTP handler for RPC messages on rpcPath,

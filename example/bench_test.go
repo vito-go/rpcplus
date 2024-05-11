@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 )
+//go:generate  go test -bench=.
 
 func BenchmarkRPCPlus(b *testing.B) {
 	rpcPlusOnce.Do(startRPCPlusServer)

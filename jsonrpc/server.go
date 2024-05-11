@@ -9,7 +9,6 @@ import (
 	"errors"
 	"github/vito-go/rpcplus"
 	"io"
-	"net/http"
 	"sync"
 )
 
@@ -139,6 +138,5 @@ func (c *serverCodec) Close() error {
 // ServeConn blocks, serving the connection until the client hangs up.
 // The caller typically invokes ServeConn in a go statement.
 func ServeConn(conn io.ReadWriteCloser) {
-	http.NewServeMux()
 	rpcplus.ServeCodec(NewServerCodec(conn))
 }

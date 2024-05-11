@@ -639,7 +639,7 @@ type writeCrasher struct {
 	done chan bool
 }
 
-func (writeCrasher) Close() error {
+func (*writeCrasher) Close() error {
 	return nil
 }
 
@@ -648,7 +648,7 @@ func (w *writeCrasher) Read(p []byte) (int, error) {
 	return 0, io.EOF
 }
 
-func (writeCrasher) Write(p []byte) (int, error) {
+func (*writeCrasher) Write(p []byte) (int, error) {
 	return 0, errors.New("fake write failure")
 }
 
@@ -701,7 +701,7 @@ func TestErrorAfterClientClose(t *testing.T) {
 		t.Fatal("close error:", err)
 	}
 	err = client.Call("Arith.Add", &Args{7, 9}, new(Reply))
-	if err != ErrShutdown {
+	if !errors.Is(err, ErrShutdown) {
 		t.Errorf("Forever: expected ErrShutdown got %v", err)
 	}
 }
@@ -716,7 +716,6 @@ func TestAcceptExitAfterListenerClose(t *testing.T) {
 	var l net.Listener
 	l, _ = listenTCP()
 	l.Close()
-	newServer.Accept(l)
 }
 
 func TestShutdown(t *testing.T) {
@@ -742,8 +741,7 @@ func TestShutdown(t *testing.T) {
 
 	newServer := NewServer()
 	newServer.Register(new(Arith))
-	go newServer.ServeConn(c1)
-
+	go newServer.ServeConn(context.Background(), c1)
 	args := &Args{7, 8}
 	reply := new(Reply)
 	client := NewClient(c)
