@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/vito-go/gorpc"
+	"github/vito-go/rpcplus"
 
 	"log"
 	"net"
@@ -67,7 +67,7 @@ func main() {
 
 func exampleServer(listener net.Listener) {
 	log.SetFlags(log.Lshortfile | log.LstdFlags)
-	s := gorpc.NewServer()
+	s := rpcplus.NewServer()
 	err := s.RegisterRecv(&Stu{})
 	if err != nil {
 		panic(err)
@@ -90,49 +90,50 @@ func exampleServer(listener net.Listener) {
 	if err != nil {
 		panic(err)
 	}
-	log.Println("gorpc: Starting server on port 8081")
-	go s.Serve(listener)
+
+	log.Println("rpcplus: Starting server on port 8081")
+	go s.Accept(listener)
 }
 func exampleClient(addr string) {
 	dialer, err := net.Dial("tcp", addr)
 	if err != nil {
 		panic(err)
 	}
-	cli := gorpc.NewClient(dialer)
-	ctx := context.Background()
+	cli := rpcplus.NewClient(dialer)
+	//ctx := context.Background()
 	var result UserInfo
-	err = cli.Call(ctx, "Stu.GetUserInfoByUserId", &result, 181)
+	err = cli.Call("Stu.GetUserInfoByUserId", &result, 181)
 	if err != nil {
 		panic(err)
 	}
 	// OutPut UserInfo: {Name:Jack Age:31 ClassId:1}
 	log.Println(fmt.Sprintf("UserInfo: %+v", result))
 	var age int64
-	err = cli.Call(ctx, "Stu.GetAgeByName", &age, "Jack")
+	err = cli.Call("Stu.GetAgeByName", &age, "Jack")
 	if err != nil {
 		panic(err)
 	}
 	// OutPut Age: 31
 	log.Println(fmt.Sprintf("Age: %+v", age))
-	err = cli.CallVoid(ctx, "Stu.Post", 66)
+	err = cli.CallVoid("Stu.Post", 66)
 	if err != nil {
 		panic(err)
 	}
 	var addResult int
-	err = cli.Call(ctx, "Add", &addResult, 89, 64)
+	err = cli.Call("Add", &addResult, 89, 64)
 	if err != nil {
 		panic(err)
 	}
 	// OutPut Add Result: 153
 	log.Println(fmt.Sprintf("Add Result: %+v", addResult))
-	err = cli.Call(ctx, "Anonymous", &addResult, 89, 64)
+	err = cli.Call("Anonymous", &addResult, 89, 64)
 	if err != nil {
 		panic(err)
 	}
 	// OutPut Add Result: 5696
 	log.Println(fmt.Sprintf("Anonymous Result: %+v", addResult))
 	var userId int
-	err = cli.Call(ctx, "Stu.UpdateUserInfo", &userId, &UserInfo{
+	err = cli.Call("Stu.UpdateUserInfo", &userId, &UserInfo{
 		Name:    "Jack",
 		Age:     35,
 		ClassId: 1,
@@ -143,11 +144,11 @@ func exampleClient(addr string) {
 	// OutPut Add Result: 5696
 	log.Println(fmt.Sprintf("Stu.UpdateUserInfo Result: %+v", userId))
 
-	err = cli.CallVoid(ctx, "RecvInt.Hello", "My World!")
+	err = cli.CallVoid("RecvInt.Hello", "My World!")
 	if err != nil {
 		panic(err)
 	}
-	err = cli.CallVoid(ctx, "RecvIntPtr.Hello", "My World!")
+	err = cli.CallVoid("RecvIntPtr.Hello", "My World!")
 	if err != nil {
 		panic(err)
 	}
