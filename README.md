@@ -2,7 +2,7 @@
 
 # rpcplus
 
-rpcplus is a refined library that builds upon the Go language's standard rpc package,
+rpcplus is an enhanced library that builds upon the Go language's standard rpc package,
 offering a suite of enhancements for an improved RPC experience.
 ## Key Features
 

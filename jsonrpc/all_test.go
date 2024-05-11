@@ -94,11 +94,11 @@ func (BuiltinTypes) Array(ctx context.Context, i int) (*[1]int, error) {
 
 func init() {
 	var err error
-	err = rpcplus.Register(new(Arith))
+	err = rpcplus.RegisterRecv(new(Arith))
 	if err != nil {
 		panic(err)
 	}
-	err = rpcplus.Register(BuiltinTypes{})
+	err = rpcplus.RegisterRecv(BuiltinTypes{})
 	if err != nil {
 		panic(err)
 	}
@@ -264,7 +264,7 @@ func TestBuiltinTypes(t *testing.T) {
 	}
 
 	// Slice
-	replySlice := []int{}
+	var replySlice []int
 	err = client.Call("BuiltinTypes.Slice", &replySlice, arg)
 	if err != nil {
 		t.Errorf("Slice: expected no error but got string %q", err.Error())
@@ -341,8 +341,8 @@ func TestServerErrorHasNullResult(t *testing.T) {
 
 func TestUnexpectedError(t *testing.T) {
 	cli, srv := myPipe()
-	go cli.PipeWriter.CloseWithError(errors.New("unexpected error!")) // reader will get this error
-	ServeConn(srv)                                                    // must return, not loop
+	go cli.PipeWriter.CloseWithError(errors.New("unexpected error")) // reader will get this error
+	ServeConn(srv)                                                   // must return, not loop
 }
 
 // Copied from package net.

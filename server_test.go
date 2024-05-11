@@ -127,10 +127,10 @@ func listenTCP() (net.Listener, string) {
 }
 
 func startServer() {
-	Register(new(Arith))
-	Register(new(Embed))
+	RegisterRecv(new(Arith))
+	RegisterRecv(new(Embed))
 	RegisterName("net.rpcplus.Arith", new(Arith))
-	err := Register(BuiltinTypes{})
+	err := RegisterRecv(BuiltinTypes{})
 	if err != nil {
 		panic(err)
 	}
@@ -709,9 +709,9 @@ func TestErrorAfterClientClose(t *testing.T) {
 // Tests the fix to issue 11221. Without the fix, this loops forever or crashes.
 func TestAcceptExitAfterListenerClose(t *testing.T) {
 	newServer := NewServer()
-	newServer.Register(new(Arith))
-	newServer.RegisterName("net.rpcplus.Arith", new(Arith))
-	newServer.RegisterName("newServer.Arith", new(Arith))
+	newServer.RegisterRecv(new(Arith))
+	newServer.RegisterRecvWithName("net.rpcplus.Arith", new(Arith))
+	newServer.RegisterRecvWithName("newServer.Arith", new(Arith))
 
 	var l net.Listener
 	l, _ = listenTCP()
@@ -740,7 +740,7 @@ func TestShutdown(t *testing.T) {
 	}
 
 	newServer := NewServer()
-	newServer.Register(new(Arith))
+	newServer.RegisterRecv(new(Arith))
 	go newServer.ServeConn(context.Background(), c1)
 	args := &Args{7, 8}
 	reply := new(Reply)

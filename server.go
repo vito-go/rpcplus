@@ -207,7 +207,9 @@ func (server *Server) RegisterFunc(serviceName string, function any) error {
 	if _, dup := server.serviceMap.LoadOrStore(serviceName, m); dup {
 		return fmt.Errorf("service already defined: " + serviceName)
 	}
-	log.Printf("rpcplus: registered service %q, type: %s, method: %s\n", serviceName, f.Type(), m.name)
+	if debugLog {
+		log.Printf("rpcplus: registered service %q, type: %s, method: %s\n", serviceName, f.Type(), m.name)
+	}
 	return nil
 }
 func (server *Server) checkMethod(serviceName string, f reflect.Value) error {
@@ -608,7 +610,7 @@ func (server *Server) readRequestHeader(codec ServerCodec) (mtype *methodType, r
 	err = codec.ReadRequestHeader(req)
 	if err != nil {
 		req = nil
-		if err == io.EOF || err == io.ErrUnexpectedEOF {
+		if err == io.EOF || errors.Is(err, io.ErrUnexpectedEOF) {
 			return
 		}
 		err = errors.New("rpcplus: server cannot decode request: " + err.Error())

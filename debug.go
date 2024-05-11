@@ -53,7 +53,7 @@ type debugHTTP struct {
 }
 
 // Runs at /debug/rpcplus
-func (server debugHTTP) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+func (server debugHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Build a sorted version of the data.
 	var services serviceArray
 	server.serviceMap.Range(func(snamei, svci any) bool {

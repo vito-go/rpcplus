@@ -188,7 +188,7 @@ func (call *Call) done() {
 // the header and payload are sent as a unit.
 //
 // The read and write halves of the connection are serialized independently,
-// so no interlocking is required. However each half may be accessed
+// so no interlocking is required. However, each half may be accessed
 // concurrently so the implementation of conn should protect against
 // concurrent reads or concurrent writes.
 func NewClient(conn io.ReadWriteCloser) *Client {
