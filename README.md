@@ -2,41 +2,20 @@
 
 # rpcplus
 
-rpcplus is an enhancement of the standard Go RPC library.
-
+rpcplus is a refined library that builds upon the Go language's standard rpc package,
+offering a suite of enhancements for an improved RPC experience.
 ## Key Features
 
-- Direct registration of functions, including anonymous ones
+- Support for direct function registration on the RPC server for simplified service provisioning.
+- Ability to register anonymous functions, offering flexibility in programming.
 - Ability to register all suitable methods associated with a receiver, typically a struct
   - For `suitable` definitions, please refer to  [Register Function](#Function)
 - Support for functions with multiple input parameters
-- Integrating `context.Context` within registered functions for advanced context management, e.g `context.WithTimeout`
-  
+- Support for passing a context.Context parameter, enabling handling of timeouts, cancellations, and other context-related operations.
+- Support for Go-style return value patterns, allowing functions to return  `(T, error)` or just `error`.
+- Reserves jsonrpc support, facilitating cross-language communication
+
 These key enhancements contribute to a versatile and powerful RPC implementation.
-
-## Function
-RegisterFunc that satisfy the following conditions:
- - Have one or more arguments, with the first argument being of type context.Context
- - Return types: a single error or a pair with the second element an error
-### Example
-```go
-  func add(ctx context.Context, x int,y int) (int, error)
-
-  func GetAgeByName(ctx context.Context, name string) (int, error)
-
-  func GetAgeByClassIdAndName(ctx context.Context,classId int,name string) (int, error)
-
-  type UserInfo struct{
-      Name string
-      Age int
-      ClassId int
-  }
-	  
-  func GetUserInfoByUserId(ctx context.Context,userId int) (*UserInfo, error)
-
-  func UpdateUserInfo(ctx context.Context, u *UserInfo) (int64, error)
-
-```
 
 ## Usage
 
@@ -75,36 +54,62 @@ RegisterFunc that satisfy the following conditions:
           s.Serve(lis)
       }
     ```
-  - ### Client
-      ```go
-      package main
-      import (
-        "context"
-        "fmt"
-        "github.com/vito-go/rpcplus"
-        "log"
-        "net"
-      )
-      // look at the example/example.go UserInfo
-      func main()  {
-          dialer, err := net.Dial("tcp", "127.0.0.1:8081")
-          if err != nil {
-              panic(err)
-          }
-          cli := rpcplus.NewClient(dialer)
-          ctx := context.Background()
-          var result UserInfo
-          err = cli.Call(ctx, "Stu.GetUserInfoByUserId", &result, 181)
-          if err != nil {
-              panic(err)
-          }
-          // OutPut UserInfo: {Name:Jack Age:31 ClassId:1}
-          log.Println(fmt.Sprintf("UserInfo: %+v", result))
-      }    
-      ```
+- ### Client
+    ```go
+    package main
+    import (
+      "context"
+      "fmt"
+      "github.com/vito-go/rpcplus"
+      "log"
+      "net"
+    )
+    // look at the example/example.go UserInfo
+    func main()  {
+        dialer, err := net.Dial("tcp", "127.0.0.1:8081")
+        if err != nil {
+            panic(err)
+        }
+        cli := rpcplus.NewClient(dialer)
+        ctx := context.Background()
+        var result UserInfo
+        err = cli.Call(ctx, "Stu.GetUserInfoByUserId", &result, 181)
+        if err != nil {
+            panic(err)
+        }
+        // OutPut UserInfo: {Name:Jack Age:31 ClassId:1}
+        log.Println(fmt.Sprintf("UserInfo: %+v", result))
+    }    
+    ```
 
-## Service List
-- ### from debugHTTP
+## Function
+RegisterFunc that satisfy the following conditions:
+- Have one or more arguments, with the first argument being of type context.Context
+- Return types: a single error or a pair with the second element an error
+
+- ### Function Example
+
+```go
+  func add(ctx context.Context, x int,y int) (int, error)
+
+  func GetAgeByName(ctx context.Context, name string) (int, error)
+
+  func GetAgeByClassIdAndName(ctx context.Context,classId int,name string) (int, error)
+
+  type UserInfo struct{
+      Name string
+      Age int
+      ClassId int
+  }
+	  
+  func GetUserInfoByUserId(ctx context.Context,userId int) (*UserInfo, error)
+
+  func UpdateUserInfo(ctx context.Context, u *UserInfo) (int64, error)
+
+```
+
+- ### Service Function List (for test)
+- #### from debugHTTP
   <table border="1" cellpadding="5">
   <tbody><tr><th align="center">Service</th><th align="center">MethodType</th><th align="center">Calls</th>
           </tr><tr>
@@ -196,3 +201,7 @@ RegisterFunc that satisfy the following conditions:
           <td align="left" font="fixed">func(context.Context, *rpcplus.Args) (*string, error)</td>
           <td align="center">0</td></tr>
   </tbody></table>
+
+## Testing
+
+All test cases have been executed and passed successfully, ensuring the quality and reliability of the codebase. Contributors are encouraged to run tests before making submissions to maintain project stability.
