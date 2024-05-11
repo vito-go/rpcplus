@@ -1,64 +1,130 @@
-package gorpc
+package rpcplus
+
+// Copyright 2024 The github.com/vito-go. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+/*
+Package rpcplus provides access to a method or the exported methods of an object across a
+network or other I/O connection.  A server registers an object, making it visible
+as a service with the name of the type of the object.  After registration, the
+methods will be accessible remotely.  A server may register multiple
+objects (services) of different types, but it is an error to register multiple
+objects of the same type.
+
+Only methods that satisfy these criteria will be made available for remote access;
+other methods will be ignored:
+
+//   - Have one or more arguments, with the first argument being of type context.Context
+//   - return value: if one, it is of type error; if two, the second is of type error
+
+In effect, the method must look schematically like
+
+	func (t *T) MethodName(ctx context.Context,argType T1) (*T2,error)
+	or directly the method
+	func MethodName(ctx context.Context,argType T1) (*T2,error)
+
+where T1 and T2 can be marshaled by encoding/gob.
+These requirements apply even if a different codec is used.
+(In the future, these requirements may soften for custom codecs.)
+
+The method's first argument is context.Context, the subsequent represents the arguments provided by the caller;
+Given the return type, a single error or a pair with the second element an error, the first which represents the
+result parameters to be returned to the caller.If an error is returned, the reply parameter
+will not be sent back to the client.
+
+The server may handle requests on a single connection by calling [ServeConn].  More
+typically it will create a network listener and call [Accept] or, for an HTTP
+listener, [HandleHTTP] and [http.Serve].
+
+A client wishing to use the service establishes a connection and then invokes
+[NewClient] on the connection. The convenience function [Dial] ([DialHTTP]) performs
+both steps for a raw network connection (an HTTP connection).  The resulting
+[Client] object has two methods, [Call] and Go, that specify the service and method to
+call, a pointer containing the arguments, and a pointer to receive the result
+parameters.
+
+The Call method waits for the remote call to complete while the Go method
+launches the call asynchronously and signals completion using the Call
+structure's Done channel.
+
+Unless an explicit codec is set up, package [encoding/gob] is used to
+transport the data.
+
+Look more examples at example/example.go
+
+A server implementation will often provide a simple, type-safe wrapper for the
+client.
+
+The rpcplus package is a robust enhancement of the standard Go RPC library, which is frozen and is not accepting new features.
+*/
 
 import (
+	"bufio"
 	"context"
+	"encoding/gob"
 	"errors"
 	"fmt"
+	"go/token"
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"reflect"
 	"sync"
 )
 
-type Server struct {
-	serviceMap sync.Map // map[string]RPCFunc
-}
-
-func NewServer() *Server {
-	return &Server{serviceMap: sync.Map{}}
-}
-
-func (server *Server) Accept(listener net.Listener) {
-	server.Serve(listener)
-}
-func (server *Server) Serve(listener net.Listener) {
-	var wg sync.WaitGroup
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			log.Println(err)
-			break
-		}
-		codec := newGobServerCodec(conn)
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			server.serveConn(codec)
-		}()
-	}
-	wg.Wait()
-}
-
-type Request struct {
-	NoReply       bool
-	ServiceMethod string
-	ArgsNum       int
-	Seq           uint64
-}
-
-type Response struct {
-	Seq     uint64
-	Code    int    // 200 for success, 404 for service data not found
-	Message string //  error, if any.
-}
+const (
+	// Defaults used by HandleHTTP
+	DefaultRPCPath   = "/_goRPCPlus_"
+	DefaultDebugPath = "/debug/rpcplus"
+)
 
 type methodType struct {
-	name      string // name of service
-	argTypes  []reflect.Type
-	replyType reflect.Type  // can be nil if only one return value
-	function  reflect.Value // function
+	sync.Mutex        // protects counters
+	name       string // name of service
+	ArgTypes   []reflect.Type
+	ReplyType  reflect.Type
+	numCalls   uint
+	function   reflect.Value
 }
+
+// Request is a header written before every RPC call. It is used internally
+// but documented here as an aid to debugging, such as when analyzing
+// network traffic.
+type Request struct {
+	ServiceMethod string   // format: "Service.Method"
+	Seq           uint64   // sequence number chosen by client
+	next          *Request // for free list in Server
+	ArgNum        int
+}
+
+// Response is a header written before every RPC return. It is used internally
+// but documented here as an aid to debugging, such as when analyzing
+// network traffic.
+type Response struct {
+	ServiceMethod string    // echoes that of the Request
+	Seq           uint64    // echoes that of the request
+	Error         string    // error, if any.
+	next          *Response // for free list in Server
+}
+
+// Server represents an RPC Server.
+type Server struct {
+	serviceMap sync.Map   // map[string]*service
+	reqLock    sync.Mutex // protects freeReq
+	freeReq    *Request
+	respLock   sync.Mutex // protects freeResp
+	freeResp   *Response
+}
+
+// NewServer returns a new [Server].
+func NewServer() *Server {
+	return &Server{}
+}
+
+// DefaultServer is the default instance of [*Server].
+var DefaultServer = NewServer()
 
 // RegisterFunc that satisfy the following conditions:
 //   - Have one or more arguments, with the first argument being of type context.Context
@@ -92,14 +158,14 @@ func (server *Server) RegisterFunc(serviceName string, function any) error {
 	}
 	m := &methodType{
 		name:      serviceName,
-		argTypes:  ArgTypes,
-		replyType: replyType,
+		ArgTypes:  ArgTypes,
+		ReplyType: replyType,
 		function:  f,
 	}
 	if _, dup := server.serviceMap.LoadOrStore(serviceName, m); dup {
 		return fmt.Errorf("service already defined: " + serviceName)
 	}
-	log.Printf("gorpc: registered service %q, type: %s, method: %s\n", serviceName, f.Type(), m.name)
+	log.Printf("rpcplus: registered service %q, type: %s, method: %s\n", serviceName, f.Type(), m.name)
 	return nil
 }
 func (server *Server) checkMethod(serviceName string, f reflect.Value) error {
@@ -135,11 +201,21 @@ func (server *Server) checkMethod(serviceName string, f reflect.Value) error {
 	return nil
 }
 
+// Deprecated: please use RegisterRecvWithName
+func (server *Server) RegisterName(recvName string, receiver any) error {
+	return server.RegisterRecvWithName(recvName, receiver)
+}
 func (server *Server) RegisterRecvWithName(recvName string, receiver any) error {
 	return server.registerRecvWithName(recvName, receiver)
 }
+
+// Deprecated: please use RegisterRecv
+func (server *Server) Register(receiver any) error {
+	return server.RegisterRecv(receiver)
+}
 func (server *Server) RegisterRecv(receiver any) error {
 	v := reflect.TypeOf(receiver)
+
 	var recvName string
 	switch v.Kind() {
 	case reflect.Ptr:
@@ -151,6 +227,9 @@ func (server *Server) RegisterRecv(receiver any) error {
 }
 func (server *Server) registerRecvWithName(recvName string, receiver any) error {
 	t := reflect.TypeOf(receiver)
+	//if t.Kind() != reflect.Ptr {
+	//	return errors.New("receiver must be ptr")
+	//}
 	if t.NumMethod() == 0 {
 		return errors.New("receiver must have at least one method")
 	}
@@ -162,7 +241,7 @@ func (server *Server) registerRecvWithName(recvName string, receiver any) error 
 		err := server.RegisterFunc(serviceName, v.Method(i).Interface())
 		//err := server.RegisterFunc(serviceName, v.Method(i))
 		if err != nil {
-			log.Println("gorpc: [WARN] registered service ignored:", err.Error())
+			log.Println("rpcplus: [WARN] registered service ignored:", err.Error())
 			continue
 		}
 		atLeastOne = true
@@ -173,178 +252,446 @@ func (server *Server) registerRecvWithName(recvName string, receiver any) error 
 	return nil
 }
 
-func (mtype *methodType) call(ctx context.Context, args ...reflect.Value) (result any, err error) {
-	if len(mtype.argTypes) != len(args)+1 {
-		return nil, errors.New("gorpc: invalid number of arguments")
+// Is this type exported or a builtin?
+func isExportedOrBuiltinType(t reflect.Type) bool {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
 	}
-	f := mtype.function
-	callArgs := make([]reflect.Value, 0, len(mtype.argTypes))
+	// PkgPath will be non-empty even for an exported type,
+	// so we need to check the type name as well.
+	return token.IsExported(t.Name()) || t.PkgPath() == ""
+}
+
+// logRegisterError specifies whether to log problems during method registration.
+// To debug registration, recompile the package with this set to true.
+const logRegisterError = false
+
+// A value sent as a placeholder for the server's response value when the server
+// receives an invalid request. It is never decoded by the client since the Response
+// contains an error when it is used.
+var invalidRequest = struct{}{}
+
+func (server *Server) sendResponse(sending *sync.Mutex, req *Request, reply any, codec ServerCodec, errmsg string) {
+	resp := server.getResponse()
+	// Encode the response header
+	resp.ServiceMethod = req.ServiceMethod
+	if errmsg != "" {
+		resp.Error = errmsg
+		reply = invalidRequest
+	}
+	resp.Seq = req.Seq
+	sending.Lock()
+	err := codec.WriteResponse(resp, reply)
+	if debugLog && err != nil {
+		log.Println("rpcplus: writing response:", err)
+	}
+	sending.Unlock()
+	server.freeResponse(resp)
+}
+
+func (m *methodType) NumCalls() (n uint) {
+	m.Lock()
+	n = m.numCalls
+	m.Unlock()
+	return n
+}
+
+var emptyReply = struct{}{}
+
+func (mtype *methodType) call(ctx context.Context, server *Server, sending *sync.Mutex, wg *sync.WaitGroup, req *Request, codec ServerCodec, argv ...reflect.Value) {
+	if wg != nil {
+		defer wg.Done()
+	}
+	mtype.Lock()
+	mtype.numCalls++
+	mtype.Unlock()
+	function := mtype.function
+	// Invoke the method, providing a new value for the reply.
+	callArgs := make([]reflect.Value, 0, len(argv)+1)
 	callArgs = append(callArgs, reflect.ValueOf(ctx))
 
-	for i := 0; i < len(args); i++ {
-		if mtype.argTypes[i+1].Kind() == reflect.Pointer {
-			callArgs = append(callArgs, args[i])
+	for i := 0; i < len(argv); i++ {
+		if mtype.ArgTypes[i+1].Kind() == reflect.Pointer {
+			callArgs = append(callArgs, argv[i])
 		} else {
-			callArgs = append(callArgs, args[i].Elem())
+			if argv[i].Kind() == reflect.Struct {
+				callArgs = append(callArgs, argv[i])
+				continue
+			}
+			callArgs = append(callArgs, argv[i].Elem())
 		}
 	}
 
-	values := f.Call(callArgs)
-	if len(values) != 2 {
-		return nil, fmt.Errorf("gorpc: invalid return number. method %s length error: %v", mtype.name, len(values))
-	}
-	result = values[0].Interface()
-	vErr := values[1].Interface()
-	if vErr == nil {
-		return values[0].Interface(), nil
-	}
-	var ok bool
-	// err is no nil
-	err, ok = values[1].Interface().(error)
-	if !ok {
-		return nil, fmt.Errorf("gorpc: invalid result, not a error: %+v", values[1].Interface())
-	}
-	return result, err
-}
+	returnValues := function.Call(callArgs)
 
-func (mtype *methodType) callVoid(ctx context.Context, args ...reflect.Value) (err error) {
-	if len(mtype.argTypes) != len(args)+1 {
-		return errors.New("gorpc: invalid number of arguments")
-	}
-	f := mtype.function
-	callArgs := make([]reflect.Value, 0, len(args))
-	callArgs = append(callArgs, reflect.ValueOf(ctx))
-	for i := 0; i < len(args); i++ {
-		if mtype.argTypes[i+1].Kind() == reflect.Pointer {
-			callArgs = append(callArgs, args[i])
-		} else {
-			callArgs = append(callArgs, args[i].Elem())
+	var reply any = emptyReply
+	var errInter any
+	errmsg := ""
+	switch len(returnValues) {
+	case 1:
+		errInter = returnValues[0].Interface()
+		if errInter != nil {
+			errmsg = errInter.(error).Error()
+		}
+	case 2:
+		reply = returnValues[0].Interface()
+		errInter = returnValues[1].Interface()
+		if errInter != nil {
+			errmsg = errInter.(error).Error()
 		}
 	}
-	values := f.Call(callArgs)
-	if len(values) != 1 {
-		return fmt.Errorf("gorpc: invalid return number. method %s length error: %v", mtype.name, len(values))
-	}
-	vErr := values[0].Interface()
-	if vErr == nil {
-		return nil
-	}
-	var ok bool
-	// err is no nil
-	err, ok = values[0].Interface().(error)
-	if !ok {
-		return fmt.Errorf("gorpc: invalid result, not a error: %+v", values[1].Interface())
-	}
-	return err
+	// The return value for the method is an error.
+
+	server.sendResponse(sending, req, reply, codec, errmsg)
+	server.freeRequest(req)
 }
 
-func (server *Server) writeResponse(codec CodecServer, mutex *sync.Mutex, response *Response, body any) error {
-	mutex.Lock()
-	defer mutex.Unlock()
-	err := codec.WriteResponse(response, body)
-	if err != nil {
-		codec.Close()
-		return err
+type gobServerCodec struct {
+	rwc    io.ReadWriteCloser
+	dec    *gob.Decoder
+	enc    *gob.Encoder
+	encBuf *bufio.Writer
+	closed bool
+}
+
+func (c *gobServerCodec) ReadRequestHeader(r *Request) error {
+	return c.dec.Decode(r)
+}
+
+func (c *gobServerCodec) ReadRequestBody(args ...any) error {
+	var stopErr error
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		err := c.dec.Decode(arg)
+		if err != nil {
+			stopErr = err
+			continue
+		}
+	}
+	if stopErr != nil {
+		return stopErr
 	}
 	return nil
 }
 
-var invalidRequest = struct{}{}
+func (c *gobServerCodec) WriteResponse(r *Response, body any) (err error) {
+	if err = c.enc.Encode(r); err != nil {
+		if c.encBuf.Flush() == nil {
+			// Gob couldn't encode the header. Should not happen, so if it does,
+			// shut down the connection to signal that the connection is broken.
+			log.Println("rpcplus: gob error encoding response:", err)
+			c.Close()
+		}
+		return
+	}
+	if err = c.enc.Encode(body); err != nil {
+		if c.encBuf.Flush() == nil {
+			// Was a gob problem encoding the body but the header has been written.
+			// Shut down the connection to signal that the connection is broken.
+			log.Println("rpcplus: gob error encoding body:", err)
+			c.Close()
+		}
+		return
+	}
+	return c.encBuf.Flush()
+}
 
-func (server *Server) serveConn(codec CodecServer) {
-	defer codec.Close()
+func (c *gobServerCodec) Close() error {
+	if c.closed {
+		// Only call c.rwc.Close once; otherwise the semantics are undefined.
+		return nil
+	}
+	c.closed = true
+	return c.rwc.Close()
+}
+
+// ServeConn runs the server on a single connection.
+// ServeConn blocks, serving the connection until the client hangs up.
+// The caller typically invokes ServeConn in a go statement.
+// ServeConn uses the gob wire format (see package gob) on the
+// connection. To use an alternate codec, use [ServeCodec].
+// See [NewClient]'s comment for information about concurrent access.
+func (server *Server) ServeConn(conn io.ReadWriteCloser) {
+	buf := bufio.NewWriter(conn)
+	srv := &gobServerCodec{
+		rwc:    conn,
+		dec:    gob.NewDecoder(conn),
+		enc:    gob.NewEncoder(buf),
+		encBuf: buf,
+	}
+	server.ServeCodec(srv)
+}
+
+// ServeCodec is like [ServeConn] but uses the specified codec to
+// decode requests and encode responses.
+func (server *Server) ServeCodec(codec ServerCodec) {
+	sending := new(sync.Mutex)
 	wg := new(sync.WaitGroup)
-	mux := &sync.Mutex{}
 	for {
 		ctx := context.Background()
-		request, err := codec.ReadRequestHeader()
+		mtype, req, argv, keepReading, err := server.readRequest(codec)
 		if err != nil {
-			if err == io.EOF || errors.Is(err, io.ErrUnexpectedEOF) {
-				return
+			if debugLog && err != io.EOF {
+				log.Println("rpcplus:", err)
 			}
-			err = errors.New("gorpc: server cannot decode request: " + err.Error())
-			log.Printf("read request header: %v", err)
-			break
-		}
-		sf, ok := server.serviceMap.Load(request.ServiceMethod)
-		if !ok {
-			_ = codec.ReadRequestBody(make([]any, request.ArgsNum)...)
-			// todo arg>0
-			err = server.writeResponse(codec, mux, &Response{Code: 404, Seq: request.Seq, Message: "rpcplus: can't find method: " + request.ServiceMethod}, invalidRequest)
-			if err != nil {
-				return
+			if !keepReading {
+				break
+			}
+			// send a response if we actually managed to read a header.
+			if req != nil {
+				server.sendResponse(sending, req, invalidRequest, codec, err.Error())
+				server.freeRequest(req)
 			}
 			continue
-		}
-		mtype := sf.(*methodType)
-		// first is context
-		if request.ArgsNum+1 < len(mtype.argTypes) {
-			_ = codec.ReadRequestBody(make([]any, request.ArgsNum)...)
-			if err = server.writeResponse(codec, mux, &Response{Code: 403, Seq: request.Seq, Message: "gorpc: call with too few input arguments"}, invalidRequest); err != nil {
-				return
-			}
-			continue
-		} else if request.ArgsNum+1 > len(mtype.argTypes) {
-			_ = codec.ReadRequestBody(make([]any, request.ArgsNum)...)
-			if err = server.writeResponse(codec, mux, &Response{Code: 403, Seq: request.Seq, Message: "gorpc: call with too many input arguments"}, invalidRequest); err != nil {
-				return
-			}
-			continue
-		}
-		args := make([]reflect.Value, 0, request.ArgsNum)
-		bodyArgs := make([]any, 0, request.ArgsNum)
-		argVTrues := make([]bool, 0, request.ArgsNum)
-		for i := 1; i < len(mtype.argTypes); i++ {
-			argType := mtype.argTypes[i]
-			var argv reflect.Value
-			argIsValue := false // if true, need to indirect before calling.
-			if argType.Kind() == reflect.Pointer {
-				argv = reflect.New(argType.Elem())
-			} else {
-				argv = reflect.New(argType)
-				argIsValue = true
-			}
-			args = append(args, argv)
-			bodyArgs = append(bodyArgs, argv.Interface())
-			argVTrues = append(argVTrues, argIsValue)
-		}
-		err = codec.ReadRequestBody(bodyArgs...)
-		if err != nil {
-			err = server.writeResponse(codec, mux, &Response{Code: 403, Seq: request.Seq, Message: err.Error()}, invalidRequest)
-			if err != nil {
-				return
-			}
-			continue
-		}
-		for i := 0; i < len(args); i++ {
-			if argVTrues[i] {
-				args[i] = args[i]
-			}
 		}
 		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			var err error
-			var reply any = invalidRequest
-			if request.NoReply {
-				err = mtype.callVoid(ctx, args...)
-			} else {
-				reply, err = mtype.call(ctx, args...)
-			}
-			if err != nil {
-				if err = server.writeResponse(codec, mux, &Response{Seq: request.Seq, Code: 403, Message: err.Error()}, invalidRequest); err != nil {
-					_ = codec.Close()
-					return
-				}
-				return
-			}
-			if err = server.writeResponse(codec, mux, &Response{Seq: request.Seq, Message: "", Code: 200}, reply); err != nil {
-				_ = codec.Close()
-				return
-			}
-		}()
+		go mtype.call(ctx, server, sending, wg, req, codec, argv...)
 	}
 	// We've seen that there are no more requests.
 	// Wait for responses to be sent before closing codec.
 	wg.Wait()
+	codec.Close()
+}
+
+// ServeRequest is like [ServeCodec] but synchronously serves a single request.
+// It does not close the codec upon completion.
+func (server *Server) ServeRequest(codec ServerCodec) error {
+	sending := new(sync.Mutex)
+	mtype, req, argv, keepReading, err := server.readRequest(codec)
+	if err != nil {
+		if !keepReading {
+			return err
+		}
+		// send a response if we actually managed to read a header.
+		if req != nil {
+			server.sendResponse(sending, req, invalidRequest, codec, err.Error())
+			server.freeRequest(req)
+		}
+		return err
+	}
+	ctx := context.TODO()
+	mtype.call(ctx, server, sending, nil, req, codec, argv...)
+	return nil
+}
+
+func (server *Server) getRequest() *Request {
+	server.reqLock.Lock()
+	req := server.freeReq
+	if req == nil {
+		req = new(Request)
+	} else {
+		server.freeReq = req.next
+		*req = Request{}
+	}
+	server.reqLock.Unlock()
+	return req
+}
+
+func (server *Server) freeRequest(req *Request) {
+	server.reqLock.Lock()
+	req.next = server.freeReq
+	server.freeReq = req
+	server.reqLock.Unlock()
+}
+
+func (server *Server) getResponse() *Response {
+	server.respLock.Lock()
+	resp := server.freeResp
+	if resp == nil {
+		resp = new(Response)
+	} else {
+		server.freeResp = resp.next
+		*resp = Response{}
+	}
+	server.respLock.Unlock()
+	return resp
+}
+
+func (server *Server) freeResponse(resp *Response) {
+	server.respLock.Lock()
+	resp.next = server.freeResp
+	server.freeResp = resp
+	server.respLock.Unlock()
+}
+
+func (server *Server) readRequest(codec ServerCodec) (mtype *methodType, req *Request, argv []reflect.Value, keepReading bool, err error) {
+	mtype, req, keepReading, err = server.readRequestHeader(codec)
+	if err != nil {
+		if !keepReading {
+			return
+		}
+		// discard body
+		codec.ReadRequestBody(make([]any, req.ArgNum)...)
+		return
+	}
+	argv = make([]reflect.Value, 0, req.ArgNum)
+	bodyValues := make([]any, 0, req.ArgNum)
+	argIsValues := make([]bool, 0, req.ArgNum)
+	for i := 1; i < len(mtype.ArgTypes); i++ {
+		var a reflect.Value
+		if mtype.ArgTypes[i].Kind() == reflect.Pointer {
+			a = reflect.New(mtype.ArgTypes[i].Elem())
+			argIsValues = append(argIsValues, false)
+		} else {
+			a = reflect.New(mtype.ArgTypes[i])
+			argIsValues = append(argIsValues, true)
+		}
+
+		argv = append(argv, a)
+		bodyValues = append(bodyValues, a.Interface())
+	}
+
+	// argv guaranteed to be a pointer now.
+	if err = codec.ReadRequestBody(bodyValues...); err != nil {
+		return
+	}
+
+	for i := 0; i < len(argIsValues); i++ {
+		if argIsValues[i] {
+			if argv[i].Kind() == reflect.Pointer && argv[i].Elem().Kind() == reflect.Struct {
+				argv[i] = argv[i].Elem()
+			}
+		}
+	}
+
+	return
+}
+
+func (server *Server) readRequestHeader(codec ServerCodec) (mtype *methodType, req *Request, keepReading bool, err error) {
+	// Grab the request header.
+	req = server.getRequest()
+	err = codec.ReadRequestHeader(req)
+	if err != nil {
+		req = nil
+		if err == io.EOF || err == io.ErrUnexpectedEOF {
+			return
+		}
+		err = errors.New("rpcplus: server cannot decode request: " + err.Error())
+		return
+	}
+
+	// We read the header successfully. If we see an error now,
+	// we can still recover and move on to the next request.
+	keepReading = true
+
+	serviceName := req.ServiceMethod
+	// Look up the request.
+	svci, ok := server.serviceMap.Load(serviceName)
+	if !ok {
+		err = errors.New("rpcplus: can't find method")
+		return
+	}
+	mtype = svci.(*methodType)
+	if len(mtype.ArgTypes) != req.ArgNum+1 {
+		err = fmt.Errorf("rpcplus: wrong number inputs")
+	}
+
+	return
+}
+
+// Accept accepts connections on the listener and serves requests
+// for each incoming connection. Accept blocks until the listener
+// returns a non-nil error. The caller typically invokes Accept in a
+// go statement.
+func (server *Server) Accept(lis net.Listener) {
+	for {
+		conn, err := lis.Accept()
+		if err != nil {
+			log.Print("rpcplus.Serve: accept:", err.Error())
+			return
+		}
+		go server.ServeConn(conn)
+	}
+}
+
+// Register publishes the receiver's methods in the [DefaultServer].
+// Deprecated: please use RegisterRecv
+func Register(rcvr any) error     { return DefaultServer.RegisterRecv(rcvr) }
+func RegisterRecv(rcvr any) error { return DefaultServer.RegisterRecv(rcvr) }
+
+func RegisterFunc(serviceName string, f any) error { return DefaultServer.RegisterFunc(serviceName, f) }
+
+// RegisterName is like [Register] but uses the provided name for the type
+// instead of the receiver's concrete type.
+func RegisterName(name string, rcvr any) error {
+	return DefaultServer.registerRecvWithName(name, rcvr)
+}
+
+// A ServerCodec implements reading of RPC requests and writing of
+// RPC responses for the server side of an RPC session.
+// The server calls [ServerCodec.ReadRequestHeader] and [ServerCodec.ReadRequestBody] in pairs
+// to read requests from the connection, and it calls [ServerCodec.WriteResponse] to
+// write a response back. The server calls [ServerCodec.Close] when finished with the
+// connection. ReadRequestBody may be called with a nil
+// argument to force the body of the request to be read and discarded.
+// See [NewClient]'s comment for information about concurrent access.
+type ServerCodec interface {
+	ReadRequestHeader(*Request) error
+	ReadRequestBody(...any) error
+	WriteResponse(*Response, any) error
+
+	// Close can be called multiple times and must be idempotent.
+	Close() error
+}
+
+// ServeConn runs the [DefaultServer] on a single connection.
+// ServeConn blocks, serving the connection until the client hangs up.
+// The caller typically invokes ServeConn in a go statement.
+// ServeConn uses the gob wire format (see package gob) on the
+// connection. To use an alternate codec, use [ServeCodec].
+// See [NewClient]'s comment for information about concurrent access.
+func ServeConn(conn io.ReadWriteCloser) {
+	DefaultServer.ServeConn(conn)
+}
+
+// ServeCodec is like [ServeConn] but uses the specified codec to
+// decode requests and encode responses.
+func ServeCodec(codec ServerCodec) {
+	DefaultServer.ServeCodec(codec)
+}
+
+// ServeRequest is like [ServeCodec] but synchronously serves a single request.
+// It does not close the codec upon completion.
+func ServeRequest(codec ServerCodec) error {
+	return DefaultServer.ServeRequest(codec)
+}
+
+// Accept accepts connections on the listener and serves requests
+// to [DefaultServer] for each incoming connection.
+// Accept blocks; the caller typically invokes it in a go statement.
+func Accept(lis net.Listener) { DefaultServer.Accept(lis) }
+
+// Can connect to RPC service using HTTP CONNECT to rpcPath.
+var connected = "200 Connected to Go RPC"
+
+// ServeHTTP implements an [http.Handler] that answers RPC requests.
+func (server *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if req.Method != "CONNECT" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		io.WriteString(w, "405 must CONNECT\n")
+		return
+	}
+	conn, _, err := w.(http.Hijacker).Hijack()
+	if err != nil {
+		log.Print("rpcplus hijacking ", req.RemoteAddr, ": ", err.Error())
+		return
+	}
+	io.WriteString(conn, "HTTP/1.0 "+connected+"\n\n")
+	server.ServeConn(conn)
+}
+
+// HandleHTTP registers an HTTP handler for RPC messages on rpcPath,
+// and a debugging handler on debugPath.
+// It is still necessary to invoke [http.Serve](), typically in a go statement.
+func (server *Server) HandleHTTP(rpcPath, debugPath string) {
+	http.Handle(rpcPath, server)
+	http.Handle(debugPath, debugHTTP{server})
+}
+
+// HandleHTTP registers an HTTP handler for RPC messages to [DefaultServer]
+// on [DefaultRPCPath] and a debugging handler on [DefaultDebugPath].
+// It is still necessary to invoke [http.Serve](), typically in a go statement.
+func HandleHTTP() {
+	DefaultServer.HandleHTTP(DefaultRPCPath, DefaultDebugPath)
 }

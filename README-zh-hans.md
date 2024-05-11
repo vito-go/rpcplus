@@ -1,7 +1,7 @@
 ## [English](README.md) | [中文版](README-zh-hans.md)
 
-# gorpc
-gorpc 是对标准 Go RPC 库的强健增强版, 进行了多项改进。
+# rpcplus
+rpcplus 是对标准 Go RPC 库的增强版, 进行了多项改进。
 
 ## 主要特点
 - 直接注册函数，甚至是匿名函数
@@ -10,7 +10,7 @@ gorpc 是对标准 Go RPC 库的强健增强版, 进行了多项改进。
 - 支持包含多个参数的函数
 - 为注册的函数加入 `context.Context` 支持，用于更复杂的上下文管理, 例如`context.WithTimeout`
  
-以上关键特性使得 gorpc 成为一个功能全面而强大的 RPC 框架。
+以上关键特性使得 rpcplus 成为一个功能全面而强大的 RPC 框架。
 ## 函数注册
 - 要求函数满足以下条件：
   - 一个参数或多个参数，首个为 context.Context 类型
@@ -43,14 +43,14 @@ gorpc 是对标准 Go RPC 库的强健增强版, 进行了多项改进。
         package  main
         import (
             "context"
-            "github.com/vito-go/gorpc"
+            "github.com/vito-go/rpcplus"
             "log"
             "net"
         )
         // look at the example/example.go Stu and Add 
         func main()  {
             log.SetFlags(log.Lshortfile | log.LstdFlags)
-            s := gorpc.NewServer()
+            s := rpcplus.NewServer()
             err := s.RegisterRecv(&Stu{})
             if err != nil {
                 panic(err)
@@ -69,7 +69,7 @@ gorpc 是对标准 Go RPC 库的强健增强版, 进行了多项改进。
             if err != nil {
                 panic(err)
             }
-            log.Println("gorpc: Starting server on port 8081")
+            log.Println("rpcplus: Starting server on port 8081")
             s.Serve(lis)
         }
     ```
@@ -78,7 +78,7 @@ gorpc 是对标准 Go RPC 库的强健增强版, 进行了多项改进。
         package main
         import (
             "context"
-            "github.com/vito-go/gorpc"
+            "github.com/vito-go/rpcplus"
             "net"
         )
         // look at the example/example.go UserInfo
@@ -87,7 +87,7 @@ gorpc 是对标准 Go RPC 库的强健增强版, 进行了多项改进。
             if err != nil {
                 panic(err)
             }
-            cli := gorpc.NewClient(dialer)
+            cli := rpcplus.NewClient(dialer)
             ctx := context.Background()
             var result UserInfo
             err = cli.Call(ctx, "Stu.GetUserInfoByUserId", &result, 181)
@@ -98,4 +98,98 @@ gorpc 是对标准 Go RPC 库的强健增强版, 进行了多项改进。
     
     
     ```
- 
+
+
+## 服务方法列表
+- ### 来自 debugHTTP
+  <table border="1" cellpadding="5">
+  <tbody><tr><th align="center">Service</th><th align="center">MethodType</th><th align="center">Calls</th>
+          </tr><tr>
+          <td align="left" font="fixed">Arith.Add</td>
+          <td align="left" font="fixed">func(context.Context, *rpcplus.Args) (*rpcplus.Reply, error)</td>
+          <td align="center">0</td></tr>
+          <tr>
+          <td align="left" font="fixed">Arith.Div</td>
+          <td align="left" font="fixed">func(context.Context, rpcplus.Args) (*rpcplus.Reply, error)</td>
+          <td align="center">0</td></tr>
+          <tr>
+          <td align="left" font="fixed">Arith.Error</td>
+          <td align="left" font="fixed">func(context.Context, *rpcplus.Args) (*rpcplus.Reply, error)</td>
+          <td align="center">0</td></tr>
+          <tr>
+          <td align="left" font="fixed">Arith.Mul</td>
+          <td align="left" font="fixed">func(context.Context, *rpcplus.Args) (*rpcplus.Reply, error)</td>
+          <td align="center">0</td></tr>
+          <tr>
+          <td align="left" font="fixed">Arith.Scan</td>
+          <td align="left" font="fixed">func(context.Context, string) (*rpcplus.Reply, error)</td>
+          <td align="center">0</td></tr>
+          <tr>
+          <td align="left" font="fixed">Arith.SleepMilli</td>
+          <td align="left" font="fixed">func(context.Context, rpcplus.Args) (*rpcplus.Reply, error)</td>
+          <td align="center">0</td></tr>
+          <tr>
+          <td align="left" font="fixed">Arith.String</td>
+          <td align="left" font="fixed">func(context.Context, *rpcplus.Args) (*string, error)</td>
+          <td align="center">0</td></tr>
+          <tr>
+          <td align="left" font="fixed">Embed.Exported</td>
+          <td align="left" font="fixed">func(context.Context, rpcplus.Args) (*rpcplus.Reply, error)</td>
+          <td align="center">0</td></tr>
+          <tr>
+          <td align="left" font="fixed">net.rpcplus.Arith.Add</td>
+          <td align="left" font="fixed">func(context.Context, *rpcplus.Args) (*rpcplus.Reply, error)</td>
+          <td align="center">0</td></tr>
+          <tr>
+          <td align="left" font="fixed">net.rpcplus.Arith.Div</td>
+          <td align="left" font="fixed">func(context.Context, rpcplus.Args) (*rpcplus.Reply, error)</td>
+          <td align="center">0</td></tr>
+          <tr>
+          <td align="left" font="fixed">net.rpcplus.Arith.Error</td>
+          <td align="left" font="fixed">func(context.Context, *rpcplus.Args) (*rpcplus.Reply, error)</td>
+          <td align="center">0</td></tr>
+          <tr>
+          <td align="left" font="fixed">net.rpcplus.Arith.Mul</td>
+          <td align="left" font="fixed">func(context.Context, *rpcplus.Args) (*rpcplus.Reply, error)</td>
+          <td align="center">0</td></tr>
+          <tr>
+          <td align="left" font="fixed">net.rpcplus.Arith.Scan</td>
+          <td align="left" font="fixed">func(context.Context, string) (*rpcplus.Reply, error)</td>
+          <td align="center">0</td></tr>
+          <tr>
+          <td align="left" font="fixed">net.rpcplus.Arith.SleepMilli</td>
+          <td align="left" font="fixed">func(context.Context, rpcplus.Args) (*rpcplus.Reply, error)</td>
+          <td align="center">0</td></tr>
+          <tr>
+          <td align="left" font="fixed">net.rpcplus.Arith.String</td>
+          <td align="left" font="fixed">func(context.Context, *rpcplus.Args) (*string, error)</td>
+          <td align="center">0</td></tr>
+          <tr>
+          <td align="left" font="fixed">newServer.Arith.Add</td>
+          <td align="left" font="fixed">func(context.Context, *rpcplus.Args) (*rpcplus.Reply, error)</td>
+          <td align="center">0</td></tr>
+          <tr>
+          <td align="left" font="fixed">newServer.Arith.Div</td>
+          <td align="left" font="fixed">func(context.Context, rpcplus.Args) (*rpcplus.Reply, error)</td>
+          <td align="center">0</td></tr>
+          <tr>
+          <td align="left" font="fixed">newServer.Arith.Error</td>
+          <td align="left" font="fixed">func(context.Context, *rpcplus.Args) (*rpcplus.Reply, error)</td>
+          <td align="center">0</td></tr>
+          <tr>
+          <td align="left" font="fixed">newServer.Arith.Mul</td>
+          <td align="left" font="fixed">func(context.Context, *rpcplus.Args) (*rpcplus.Reply, error)</td>
+          <td align="center">0</td></tr>
+          <tr>
+          <td align="left" font="fixed">newServer.Arith.Scan</td>
+          <td align="left" font="fixed">func(context.Context, string) (*rpcplus.Reply, error)</td>
+          <td align="center">0</td></tr>
+          <tr>
+          <td align="left" font="fixed">newServer.Arith.SleepMilli</td>
+          <td align="left" font="fixed">func(context.Context, rpcplus.Args) (*rpcplus.Reply, error)</td>
+          <td align="center">0</td></tr>
+          <tr>
+          <td align="left" font="fixed">newServer.Arith.String</td>
+          <td align="left" font="fixed">func(context.Context, *rpcplus.Args) (*string, error)</td>
+          <td align="center">0</td></tr>
+  </tbody></table>
