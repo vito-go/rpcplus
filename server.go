@@ -516,8 +516,11 @@ func (server *Server) ServeRequest(codec ServerCodec) error {
 		}
 		return err
 	}
-	ctx := context.TODO()
-	mtype.call(ctx, server, sending, nil, req, codec, argv...)
+	reqCtx := context.Background()
+	if server.RequestContext != nil {
+		reqCtx = server.RequestContext(reqCtx)
+	}
+	mtype.call(reqCtx, server, sending, nil, req, codec, argv...)
 	return nil
 }
 
