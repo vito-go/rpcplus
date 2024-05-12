@@ -58,11 +58,11 @@ func main() {
 	}
 	exampleServer(listener)
 	// wait for server starting
-	_, err = net.Dial("tcp", listener.Addr().String())
+	dialer, err := net.Dial("tcp", listener.Addr().String())
 	if err != nil {
 		panic(err)
 	}
-	exampleClient(listener.Addr().String())
+	exampleClient(dialer)
 }
 
 func exampleServer(listener net.Listener) {
@@ -94,15 +94,12 @@ func exampleServer(listener net.Listener) {
 	log.Println("rpcplus: Starting server on port 8081")
 	go s.Accept(listener)
 }
-func exampleClient(addr string) {
-	dialer, err := net.Dial("tcp", addr)
-	if err != nil {
-		panic(err)
-	}
+func exampleClient(dialer net.Conn) {
+
 	cli := rpcplus.NewClient(dialer)
 	//ctx := context.Background()
 	var result UserInfo
-	err = cli.Call("Stu.GetUserInfoByUserId", &result, 181)
+	err := cli.Call("Stu.GetUserInfoByUserId", &result, 181)
 	if err != nil {
 		panic(err)
 	}
