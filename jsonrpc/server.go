@@ -7,7 +7,7 @@ package jsonrpc
 import (
 	"encoding/json"
 	"errors"
-	"github/vito-go/rpcplus"
+	"github.com/vito-go/rpcplus"
 	"io"
 	"sync"
 )

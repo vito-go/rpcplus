@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"github/vito-go/rpcplus"
+	"github.com/vito-go/rpcplus"
 
 	"log"
 	"net"

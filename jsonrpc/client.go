@@ -10,7 +10,7 @@ package jsonrpc
 import (
 	"encoding/json"
 	"fmt"
-	"github/vito-go/rpcplus"
+	"github.com/vito-go/rpcplus"
 	"io"
 	"net"
 	"sync"

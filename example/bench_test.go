@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"github/vito-go/rpcplus"
+	"github.com/vito-go/rpcplus"
 	"log"
 	"net"
 	"net/rpc"
